@@ -2,12 +2,13 @@
 // Then open http://localhost:3000
 
 const http = require('http');
+const https = require('https');
 const fs = require('fs');
 const path = require('path');
 
 const PORT = 3000;
 
-// Mock data
+// Mock data (fallback)
 const mockSkills = [
     { name: 'github', description: 'GitHub repositories and issues management' },
     { name: 'slack', description: 'Send messages and read channels' },
@@ -15,6 +16,47 @@ const mockSkills = [
     { name: 'notion', description: 'Manage pages and databases' },
     { name: 'stripe', description: 'Payment processing and customer management' }
 ];
+
+// Proxy helper
+function proxyRequest(baseUrl, path, authHeader, callback) {
+    const url = new URL(path, baseUrl);
+    const protocol = url.protocol === 'https:' ? https : http;
+
+    const options = {
+        hostname: url.hostname,
+        port: url.port,
+        path: url.pathname + url.search,
+        method: 'GET',
+        headers: {}
+    };
+
+    if (authHeader) {
+        options.headers['Authorization'] = authHeader;
+    }
+
+    const proxyReq = protocol.request(options, (proxyRes) => {
+        let data = '';
+
+        proxyRes.on('data', (chunk) => {
+            data += chunk;
+        });
+
+        proxyRes.on('end', () => {
+            try {
+                const parsed = JSON.parse(data);
+                callback(null, parsed);
+            } catch (e) {
+                callback(new Error('Invalid JSON response'));
+            }
+        });
+    });
+
+    proxyReq.on('error', (e) => {
+        callback(e);
+    });
+
+    proxyReq.end();
+}
 
 const server = http.createServer((req, res) => {
     // CORS headers
@@ -48,32 +90,56 @@ const server = http.createServer((req, res) => {
         return;
     }
 
-    // Mock GET /api/openclaw/status
+    // Proxy GET /api/openclaw/status
     if (method === 'GET' && url === '/api/openclaw/status') {
         const token = req.headers.authorization;
         const gatewayUrl = req.headers['x-gateway-url'];
 
-        console.log('Status check:', { gatewayUrl, token: token ? 'present' : 'missing' });
+        if (!gatewayUrl) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'X-Gateway-URL header required' }));
+            return;
+        }
 
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({
-            ok: true,
-            version: 'mock-1.0.0',
-            gateway: gatewayUrl || 'unknown'
-        }));
+        console.log('Proxying status to:', gatewayUrl);
+
+        proxyRequest(gatewayUrl, '/api/status', token, (err, data) => {
+            if (err) {
+                console.error('Status error:', err.message);
+                res.writeHead(500, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ error: err.message }));
+                return;
+            }
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify(data));
+        });
         return;
     }
 
-    // Mock GET /api/openclaw/skills
+    // Proxy GET /api/openclaw/skills
     if (method === 'GET' && url === '/api/openclaw/skills') {
         const token = req.headers.authorization;
+        const gatewayUrl = req.headers['x-gateway-url'];
 
-        console.log('Skills fetch:', { token: token ? 'present' : 'missing' });
+        if (!gatewayUrl) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'X-Gateway-URL header required' }));
+            return;
+        }
 
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({
-            skills: mockSkills
-        }));
+        console.log('Proxying skills to:', gatewayUrl);
+
+        proxyRequest(gatewayUrl, '/api/skills', token, (err, data) => {
+            if (err) {
+                console.error('Skills error:', err.message);
+                // Fallback to mock if endpoint doesn't exist
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ skills: mockSkills }));
+                return;
+            }
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify(data));
+        });
         return;
     }
 
