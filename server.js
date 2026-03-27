@@ -5,6 +5,7 @@ const http = require('http');
 const https = require('https');
 const fs = require('fs');
 const path = require('path');
+const { exec } = require('child_process');
 
 const PORT = 3000;
 
@@ -26,6 +27,84 @@ const availableSkills = [
         endpoint: 'https://api.mobula.io/api/1/metadata'
     }
 ];
+
+// Helper to install skills to OpenClaw
+function installSkillsToOpenClaw(gatewayUrl, token, skills, callback) {
+    // Generate SKILL.md content for each skill
+    const skillFiles = skills.map(skill => {
+        const skillMd = `# ${skill.name}
+
+${skill.description}
+
+## API Endpoint
+${skill.endpoint}
+
+## Usage
+
+This skill provides access to Mobula API endpoints.
+
+### Example curl command:
+\`\`\`bash
+curl -X GET "${skill.endpoint}" \\
+  -H "Authorization: Bearer $MOBULA_API_KEY"
+\`\`\`
+
+## Parameters
+
+Check the API documentation at https://docs.mobula.io for available parameters.
+`;
+        return {
+            name: skill.name,
+            content: skillMd
+        };
+    });
+
+    // For now, we just prepare the files
+    // Real implementation would need to write these files to ~/.openclaw/skills/
+    // This could be done via:
+    // 1. SSH to the server and write files
+    // 2. OpenClaw API endpoint (if it exists)
+    // 3. File upload via gateway
+
+    console.log('Generated skill files:', skillFiles.map(f => f.name));
+
+    // Write skills via SSH to the VPS
+    const sshHost = 'rescue@57.130.19.92';
+    const sshPort = '8822';
+    const skillsBasePath = '/home/rescue/.openclaw/skills';
+
+    let completed = 0;
+    const total = skillFiles.length;
+
+    if (total === 0) {
+        return callback(null);
+    }
+
+    skillFiles.forEach(skillFile => {
+        const skillDir = `${skillsBasePath}/${skillFile.name}`;
+        const skillMdPath = `${skillDir}/SKILL.md`;
+
+        // Escape content for bash
+        const escapedContent = skillFile.content.replace(/'/g, "'\\''");
+
+        const command = `ssh -p ${sshPort} ${sshHost} "mkdir -p ${skillDir} && echo '${escapedContent}' > ${skillMdPath}"`;
+
+        exec(command, (error, stdout, stderr) => {
+            if (error) {
+                console.error(`Error installing ${skillFile.name}:`, error.message);
+                return callback(error);
+            }
+
+            console.log(`✓ Installed skill: ${skillFile.name}`);
+            completed++;
+
+            if (completed === total) {
+                console.log(`All ${total} skills installed successfully`);
+                callback(null);
+            }
+        });
+    });
+}
 
 // Proxy helper
 function proxyRequest(baseUrl, path, authHeader, callback) {
@@ -159,16 +238,22 @@ const server = http.createServer((req, res) => {
 
                 console.log('Installing skills to OpenClaw:', skillsToInstall);
 
-                // TODO: Send skills config to OpenClaw via API
-                // For now, we just log and return success
-                // In real implementation, you would POST to OpenClaw's skill installation endpoint
+                // Install skills by creating SKILL.md files
+                installSkillsToOpenClaw(gatewayUrl, token, skillsToInstall, (err) => {
+                    if (err) {
+                        console.error('Installation error:', err);
+                        res.writeHead(500, { 'Content-Type': 'application/json' });
+                        res.end(JSON.stringify({ error: err.message }));
+                        return;
+                    }
 
-                res.writeHead(200, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({
-                    success: true,
-                    message: 'Skills sent to OpenClaw successfully',
-                    installedSkills: skillsToInstall
-                }));
+                    res.writeHead(200, { 'Content-Type': 'application/json' });
+                    res.end(JSON.stringify({
+                        success: true,
+                        message: 'Skills installed to OpenClaw successfully',
+                        installedSkills: skillsToInstall
+                    }));
+                });
             } catch (error) {
                 res.writeHead(400, { 'Content-Type': 'application/json' });
                 res.end(JSON.stringify({ error: 'Invalid JSON' }));
