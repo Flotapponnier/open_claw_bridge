@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OpenClaw Connect Widget</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-50 min-h-screen flex items-center justify-center p-4">
+
+    <!-- Trigger Button -->
+    <button id="openModalBtn" class="bg-orange-600 hover:bg-orange-700 text-white font-semibold px-6 py-3 rounded-lg shadow-lg transition-all">
+        🦞 Connect to OpenClaw
+    </button>
+
+    <!-- Modal -->
+    <div id="modal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+        <div class="bg-white rounded-xl shadow-2xl max-w-md w-full p-6">
+
+            <!-- Header -->
+            <div class="flex justify-between items-center mb-6">
+                <h2 class="text-2xl font-bold text-gray-800">Connect OpenClaw</h2>
+                <button id="closeModalBtn" class="text-gray-400 hover:text-gray-600 text-2xl leading-none">&times;</button>
+            </div>
+
+            <!-- Step 1: Connection Form -->
+            <div id="connectionStep" class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Gateway URL</label>
+                    <input type="text" id="gatewayUrl" value="http://localhost:18789"
+                           class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent">
+                </div>
+
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Bearer Token</label>
+                    <input type="password" id="bearerToken" placeholder="Enter your token"
+                           class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent">
+                </div>
+
+                <button id="testConnectionBtn" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 rounded-lg transition-all">
+                    Test Connection
+                </button>
+
+                <div id="connectionError" class="hidden text-red-600 text-sm bg-red-50 p-3 rounded-lg"></div>
+            </div>
+
+            <!-- Step 2: Skills Selection -->
+            <div id="skillsStep" class="hidden space-y-4">
+                <div class="bg-green-50 text-green-700 p-3 rounded-lg text-sm mb-4">
+                    ✓ Connected successfully!
+                </div>
+
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Select Skills to Expose</label>
+                    <div id="skillsList" class="space-y-2 max-h-64 overflow-y-auto">
+                        <!-- Skills will be populated here -->
+                    </div>
+                </div>
+
+                <button id="connectSkillsBtn" class="w-full bg-orange-600 hover:bg-orange-700 text-white font-medium py-2 rounded-lg transition-all">
+                    Connect Selected Skills →
+                </button>
+            </div>
+
+            <!-- Step 3: Success State -->
+            <div id="successStep" class="hidden text-center py-8">
+                <div class="text-6xl mb-4">✓</div>
+                <h3 class="text-xl font-bold text-gray-800 mb-2">All Set!</h3>
+                <p class="text-gray-600 mb-6">Your OpenClaw skills are now connected.</p>
+                <button id="doneBtn" class="bg-gray-600 hover:bg-gray-700 text-white font-medium px-6 py-2 rounded-lg transition-all">
+                    Done
+                </button>
+            </div>
+
+        </div>
+    </div>
+
+    <script>
+        const modal = document.getElementById('modal');
+        const openModalBtn = document.getElementById('openModalBtn');
+        const closeModalBtn = document.getElementById('closeModalBtn');
+        const testConnectionBtn = document.getElementById('testConnectionBtn');
+        const connectSkillsBtn = document.getElementById('connectSkillsBtn');
+        const doneBtn = document.getElementById('doneBtn');
+
+        const connectionStep = document.getElementById('connectionStep');
+        const skillsStep = document.getElementById('skillsStep');
+        const successStep = document.getElementById('successStep');
+        const connectionError = document.getElementById('connectionError');
+        const skillsList = document.getElementById('skillsList');
+
+        let gatewayUrl = '';
+        let bearerToken = '';
+
+        // Open modal
+        openModalBtn.addEventListener('click', () => {
+            modal.classList.remove('hidden');
+            resetModal();
+        });
+
+        // Close modal
+        closeModalBtn.addEventListener('click', () => {
+            modal.classList.add('hidden');
+        });
+
+        // Close modal on backdrop click
+        modal.addEventListener('click', (e) => {
+            if (e.target === modal) {
+                modal.classList.add('hidden');
+            }
+        });
+
+        // Reset modal to initial state
+        function resetModal() {
+            connectionStep.classList.remove('hidden');
+            skillsStep.classList.add('hidden');
+            successStep.classList.add('hidden');
+            connectionError.classList.add('hidden');
+            connectionError.textContent = '';
+        }
+
+        // Test connection
+        testConnectionBtn.addEventListener('click', async () => {
+            gatewayUrl = document.getElementById('gatewayUrl').value.trim();
+            bearerToken = document.getElementById('bearerToken').value.trim();
+
+            if (!gatewayUrl || !bearerToken) {
+                showError('Please fill in both fields');
+                return;
+            }
+
+            testConnectionBtn.disabled = true;
+            testConnectionBtn.textContent = 'Testing...';
+            connectionError.classList.add('hidden');
+
+            try {
+                // Test connection via our backend proxy
+                const statusRes = await fetch('http://localhost:3000/api/openclaw/status', {
+                    headers: {
+                        'Authorization': `Bearer ${bearerToken}`,
+                        'X-Gateway-URL': gatewayUrl
+                    }
+                });
+
+                if (!statusRes.ok) throw new Error('Connection failed');
+
+                const statusData = await statusRes.json();
+
+                // Fetch skills
+                const skillsRes = await fetch('http://localhost:3000/api/openclaw/skills', {
+                    headers: {
+                        'Authorization': `Bearer ${bearerToken}`,
+                        'X-Gateway-URL': gatewayUrl
+                    }
+                });
+
+                if (!skillsRes.ok) throw new Error('Failed to fetch skills');
+
+                const skillsData = await skillsRes.json();
+
+                // Show skills step
+                renderSkills(skillsData.skills || skillsData);
+                connectionStep.classList.add('hidden');
+                skillsStep.classList.remove('hidden');
+
+            } catch (error) {
+                showError(error.message || 'Connection failed. Check your credentials.');
+            } finally {
+                testConnectionBtn.disabled = false;
+                testConnectionBtn.textContent = 'Test Connection';
+            }
+        });
+
+        // Render skills checkboxes
+        function renderSkills(skills) {
+            skillsList.innerHTML = skills.map(skill => {
+                const skillName = typeof skill === 'string' ? skill : skill.name;
+                const skillDesc = typeof skill === 'object' ? skill.description : '';
+
+                return `
+                    <label class="flex items-start space-x-3 p-3 hover:bg-gray-50 rounded-lg cursor-pointer">
+                        <input type="checkbox" value="${skillName}" class="skill-checkbox mt-1 w-4 h-4 text-orange-600 border-gray-300 rounded focus:ring-orange-500">
+                        <div class="flex-1">
+                            <div class="font-medium text-gray-800">${skillName}</div>
+                            ${skillDesc ? `<div class="text-sm text-gray-500">${skillDesc}</div>` : ''}
+                        </div>
+                    </label>
+                `;
+            }).join('');
+        }
+
+        // Connect selected skills
+        connectSkillsBtn.addEventListener('click', async () => {
+            const checkboxes = document.querySelectorAll('.skill-checkbox:checked');
+            const selectedSkills = Array.from(checkboxes).map(cb => cb.value);
+
+            if (selectedSkills.length === 0) {
+                alert('Please select at least one skill');
+                return;
+            }
+
+            connectSkillsBtn.disabled = true;
+            connectSkillsBtn.textContent = 'Connecting...';
+
+            try {
+                const response = await fetch('http://localhost:3000/api/connect', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        gatewayUrl,
+                        token: bearerToken,
+                        selectedSkills
+                    })
+                });
+
+                if (!response.ok) throw new Error('Failed to connect');
+
+                const result = await response.json();
+                console.log('Connection result:', result);
+
+                // Show success step
+                skillsStep.classList.add('hidden');
+                successStep.classList.remove('hidden');
+
+            } catch (error) {
+                alert('Failed to connect: ' + error.message);
+            } finally {
+                connectSkillsBtn.disabled = false;
+                connectSkillsBtn.textContent = 'Connect Selected Skills →';
+            }
+        });
+
+        // Done button
+        doneBtn.addEventListener('click', () => {
+            modal.classList.add('hidden');
+        });
+
+        // Helper to show error
+        function showError(message) {
+            connectionError.textContent = message;
+            connectionError.classList.remove('hidden');
+        }
+    </script>
+
+</body>
+</html>
