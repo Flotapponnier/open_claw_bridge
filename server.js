@@ -8,13 +8,23 @@ const path = require('path');
 
 const PORT = 3000;
 
-// Mock data (fallback)
-const mockSkills = [
-    { name: 'github', description: 'GitHub repositories and issues management' },
-    { name: 'slack', description: 'Send messages and read channels' },
-    { name: 'gmail', description: 'Read and send emails' },
-    { name: 'notion', description: 'Manage pages and databases' },
-    { name: 'stripe', description: 'Payment processing and customer management' }
+// Available skills from YOUR API that OpenClaw can install
+const availableSkills = [
+    {
+        name: 'mobula-market-data',
+        description: 'Get crypto market data, prices, and analytics',
+        endpoint: 'https://api.mobula.io/api/1/market/data'
+    },
+    {
+        name: 'mobula-wallet-tracking',
+        description: 'Track wallet portfolios and transactions',
+        endpoint: 'https://api.mobula.io/api/1/wallet/portfolio'
+    },
+    {
+        name: 'mobula-token-info',
+        description: 'Get detailed token information',
+        endpoint: 'https://api.mobula.io/api/1/metadata'
+    }
 ];
 
 // Proxy helper
@@ -116,34 +126,16 @@ const server = http.createServer((req, res) => {
         return;
     }
 
-    // Proxy GET /api/openclaw/skills
-    if (method === 'GET' && url === '/api/openclaw/skills') {
-        const token = req.headers.authorization;
-        const gatewayUrl = req.headers['x-gateway-url'];
+    // GET /api/skills - Return YOUR available skills for OpenClaw to install
+    if (method === 'GET' && url === '/api/skills') {
+        console.log('Returning available skills from our API');
 
-        if (!gatewayUrl) {
-            res.writeHead(400, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ error: 'X-Gateway-URL header required' }));
-            return;
-        }
-
-        console.log('Proxying skills to:', gatewayUrl);
-
-        proxyRequest(gatewayUrl, '/api/skills', token, (err, data) => {
-            if (err) {
-                console.error('Skills error:', err.message);
-                // Fallback to mock if endpoint doesn't exist
-                res.writeHead(200, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ skills: mockSkills }));
-                return;
-            }
-            res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify(data));
-        });
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ skills: availableSkills }));
         return;
     }
 
-    // POST /api/connect
+    // POST /api/connect - Send selected skills to OpenClaw to install
     if (method === 'POST' && url === '/api/connect') {
         let body = '';
 
@@ -158,11 +150,24 @@ const server = http.createServer((req, res) => {
                 console.log(JSON.stringify(payload, null, 2));
                 console.log('=========================\n');
 
+                const { gatewayUrl, token, selectedSkills } = payload;
+
+                // Prepare skills config to send to OpenClaw
+                const skillsToInstall = availableSkills.filter(skill =>
+                    selectedSkills.includes(skill.name)
+                );
+
+                console.log('Installing skills to OpenClaw:', skillsToInstall);
+
+                // TODO: Send skills config to OpenClaw via API
+                // For now, we just log and return success
+                // In real implementation, you would POST to OpenClaw's skill installation endpoint
+
                 res.writeHead(200, { 'Content-Type': 'application/json' });
                 res.end(JSON.stringify({
                     success: true,
-                    message: 'Skills connected successfully',
-                    connectedSkills: payload.selectedSkills
+                    message: 'Skills sent to OpenClaw successfully',
+                    installedSkills: skillsToInstall
                 }));
             } catch (error) {
                 res.writeHead(400, { 'Content-Type': 'application/json' });

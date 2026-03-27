@@ -146,20 +146,20 @@
 
                 const statusData = await statusRes.json();
 
-                // Fetch skills
-                const skillsRes = await fetch('http://localhost:3000/api/openclaw/skills', {
-                    headers: {
-                        'Authorization': `Bearer ${bearerToken}`,
-                        'X-Gateway-URL': gatewayUrl
-                    }
-                });
+                // Fetch available skills from OUR API (not OpenClaw)
+                const skillsRes = await fetch('http://localhost:3000/api/skills');
 
                 if (!skillsRes.ok) throw new Error('Failed to fetch skills');
 
                 const skillsData = await skillsRes.json();
 
                 // Show skills step
-                renderSkills(skillsData.skills || skillsData);
+                let skills = skillsData.skills || skillsData;
+                // Ensure skills is an array
+                if (!Array.isArray(skills)) {
+                    skills = Object.values(skills);
+                }
+                renderSkills(skills);
                 connectionStep.classList.add('hidden');
                 skillsStep.classList.remove('hidden');
 
@@ -173,6 +173,11 @@
 
         // Render skills checkboxes
         function renderSkills(skills) {
+            if (!Array.isArray(skills) || skills.length === 0) {
+                skillsList.innerHTML = '<p class="text-gray-500 text-sm">No skills available</p>';
+                return;
+            }
+
             skillsList.innerHTML = skills.map(skill => {
                 const skillName = typeof skill === 'string' ? skill : skill.name;
                 const skillDesc = typeof skill === 'object' ? skill.description : '';
